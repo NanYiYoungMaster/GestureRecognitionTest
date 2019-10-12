@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using TouchScript.Gestures.TransformGestures;
 using UnityEngine;
@@ -12,110 +11,58 @@ using UnityEngine.UI;
 
 public class MouseManager : MonoBehaviour
 {
-    public ScreenTransformGesture transformGesture;
-    public Text ModeText;
-    public Text ResultText;
-    public GameObject FileNamePanel;
-    public InputField fileNameInput;
-    public Text TipText;
+    public ScreenTransformGesture transformGesture; //屏幕滑动手势获取组件
+    private string FilePath;                        //手势XML读写路径
+    private const int MinNoPoints = 5;              //最小数量特征点数（防止误操作）
+    private bool _isDown;                           //手指是否按下
+    private bool _recording = true;                 //是否为录入模式
+    private Recognizer.Dollar.Recognizer _rec = new Recognizer.Dollar.Recognizer(); //手势识别类
+    private List<TimePointF> _points = new List<TimePointF>(256);                   //特征点集
 
-    private string FilePath;
-    private const int MinNoPoints = 5;
-    private Recognizer.Dollar.Recognizer _rec = new Recognizer.Dollar.Recognizer();
-    private bool _isDown;
-    private List<TimePointF> _points = new List<TimePointF>(256);
+
+    //UI界面
+    public Text ModeText;           //当前模式文本（录入模式/对比模式）
+    public Text ResultText;         //对比结果文本
+    public GameObject FileNamePanel;//存储文件名称输入界面
+    public InputField fileNameInput;//存储文件名称输入框
+    public Text TipText;            //提示文字（显示"文件名称不能为空"等提示文字）
 
     void Start()
     {
-        FilePath = Application.streamingAssetsPath + "/Gestures";
-        if (Directory.Exists(FilePath))
-        {
-            string[] files = Directory.GetFiles(FilePath);
-            for (int i = 0; i < files.Length; i++)
-            {
-                string name = files[i];
-                if (name.EndsWith(".xml") || name.EndsWith(".XML"))
-                {
-                    Debug.Log(name);
-                    _rec.LoadGesture(name);
-                }
-            }
-        }
+        ReadXMLFile();
         transformGesture.TransformStarted += TransformGesture_TransformStarted;
         transformGesture.Transformed += TransformGesture_Transformed;
         transformGesture.TransformCompleted += TransformGesture_TransformCompleted;
     }
 
-    //private void MainForm_MouseUp(object sender, System.Windows.Forms.MouseEventArgs e)
-    private void TransformGesture_TransformStarted(object sender, EventArgs e)
+    /// <summary>
+    /// 读取XML特征点文件
+    /// </summary>
+    private void ReadXMLFile()
     {
-        float x = transformGesture.ScreenPosition.x;
-        float y = Screen.height - transformGesture.ScreenPosition.y;
-        _isDown = true;
-        _points.Clear();
-        _points.Add(new TimePointF(x, y, TimeEx.NowMs));
-        //Invalidate();
-    }
-
-    private void TransformGesture_Transformed(object sender, EventArgs e)
-    {
-        if (_isDown)
+        FilePath = Application.streamingAssetsPath + "/Gestures";
+        if (Directory.Exists(FilePath))
         {
-            float x = transformGesture.ScreenPosition.x;
-            float y = Screen.height - transformGesture.ScreenPosition.y;
-            _points.Add(new TimePointF(x, y, TimeEx.NowMs));
-            //Invalidate(new Rectangle(x - 2, y - 2, 4, 4));
-        }
-    }
-    public bool _recording = true;
-
-    private void TransformGesture_TransformCompleted(object sender, EventArgs e)
-    {
-        if (_isDown)
-        {
-            _isDown = false;
-
-            if (_points.Count >= MinNoPoints)
+            string[] files = GetFiles(FilePath, ".xml");
+            for (int i = 0; i < files.Length; i++)
             {
-                //如果是录入模式
-                if (_recording)
-                {
-                    if (!Directory.Exists(FilePath))
-                    {
-                        Directory.CreateDirectory(FilePath);
-                    }
-                    TipText.gameObject.SetActive(false);
-                    FileNamePanel.SetActive(true);
-                }
-                //如果是比对模式
-                else if (_rec.NumGestures > 0) // not recording, so testing
-                {
-                    RecognizeAndDisplayResults();
-                }
-                //Debug.Log(_points.Count + ":" + _rec.NumGestures);
+                string name = files[i];
+                _rec.LoadGesture(name);
             }
         }
+        else
+        {
+            Directory.CreateDirectory(FilePath);
+        }
     }
-
-    private void RecognizeAndDisplayResults()
-    {
-        //Application.DoEvents(); // forces label to display
-
-        bool _protractor = false;
-        NBestList result = _rec.Recognize(_points, _protractor); // where all the action is!!
-        //Debug.LogFormat("{0}: {1} ({2}px, {3}{4}{5}({6},{7}))",
-        //    result.Name.Split('/')[result.Name.Split('/').Length - 1],
-        //    Math.Round(result.Score, 2),
-        //    Math.Round(result.Distance, 2),
-        //    Math.Round(result.Angle, 2), (char)176, _points.Count, _points[0].X, _points[0].Y);
-        ResultText.text = string.Format("{0}: {1} ({2}px, {3}{4}{5})",
-            result.Name.Split('/')[result.Name.Split('/').Length - 1],
-            Math.Round(result.Score, 2),
-            Math.Round(result.Distance, 2),
-            Math.Round(result.Angle, 2), (char)176, _points.Count);
-    }
-
-    public List<string> GetFiles(string path,string extension)
+    
+    /// <summary>
+    /// 获取路径下指定后缀名的所有文件路径
+    /// </summary>
+    /// <param name="path">文件夹路径</param>
+    /// <param name="extension">后缀名</param>
+    /// <returns>文件路径数组</returns>
+    public string[] GetFiles(string path, string extension)
     {
         List<string> files = new List<string>();
         //获取指定文件夹的所有文件
@@ -129,10 +76,78 @@ public class MouseManager : MonoBehaviour
                 files.Add(item);//添加到list中
             }
         }
-        return files;
+        return files.ToArray();
     }
 
-    public void ChangeText(string buttonName)
+    /// <summary>
+    /// 手指开始滑动
+    /// </summary>
+    private void TransformGesture_TransformStarted(object sender, EventArgs e)
+    {
+        float x = transformGesture.ScreenPosition.x;
+        float y = transformGesture.ScreenPosition.y;
+        _isDown = true;
+        _points.Clear();
+        _points.Add(new TimePointF(x, y, TimeEx.NowMs));
+    }
+    
+    /// <summary>
+    /// 手指滑动时
+    /// </summary>
+    private void TransformGesture_Transformed(object sender, EventArgs e)
+    {
+        if (_isDown)
+        {
+            float x = transformGesture.ScreenPosition.x;
+            float y = transformGesture.ScreenPosition.y;
+            _points.Add(new TimePointF(x, y, TimeEx.NowMs));
+        }
+    }
+
+    /// <summary>
+    /// 手指滑动结束（抬起）时
+    /// </summary>
+    private void TransformGesture_TransformCompleted(object sender, EventArgs e)
+    {
+        if (_isDown)
+        {
+            _isDown = false;
+            if (_points.Count >= MinNoPoints)
+            {
+                if (_recording)
+                {
+                    //录入模式
+                    ShowFileNamePanel();
+                }
+                else if (_rec.NumGestures > 0) // not recording, so testing
+                {
+                    //对比模式
+                    RecognizeAndDisplayResults();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 得到对比结果并显示
+    /// </summary>
+    private void RecognizeAndDisplayResults()
+    {
+        bool _protractor = false;
+        NBestList result = _rec.Recognize(_points, _protractor); // where all the action is!!
+        ResultText.text = string.Format("{0}: {1} ({2}px, {3}{4}{5})",
+            result.Name.Split('/')[result.Name.Split('/').Length - 1],
+            Math.Round(result.Score, 2),
+            Math.Round(result.Distance, 2),
+            Math.Round(result.Angle, 2), (char)176, _points.Count);
+    }
+
+    #region UI相关
+    /// <summary>
+    /// 改变当前模式显示文本
+    /// </summary>
+    /// <param name="buttonName"></param>
+    public void ChangeModeText(string buttonName)
     {
         if (buttonName=="save")
         {
@@ -146,6 +161,19 @@ public class MouseManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 弹出文件命名界面
+    /// </summary>
+    private void ShowFileNamePanel()
+    {
+        fileNameInput.text = "";
+        TipText.gameObject.SetActive(false);
+        FileNamePanel.SetActive(true);
+    }
+
+    /// <summary>
+    /// 确定命名并录入
+    /// </summary>
     public void OKBtnClick()
     {
         if (fileNameInput.text == "")
@@ -156,15 +184,19 @@ public class MouseManager : MonoBehaviour
         TipText.gameObject.SetActive(false);
         string fileName = Application.streamingAssetsPath + "/Gestures/" + fileNameInput.text + ".xml";
         _rec.SaveGesture(fileName, _points);  // resample, scale, translate to origin
-        ChangeText("compare");
+        ChangeModeText("compare");//录入成功后自动切换到对比模式
 #if UNITY_EDITOR
         AssetDatabase.Refresh();
 #endif
         FileNamePanel.SetActive(false);
     }
 
+    /// <summary>
+    /// 取消录入
+    /// </summary>
     public void CancelBtnClick()
     {
         FileNamePanel.SetActive(false);
     }
+    #endregion
 }
